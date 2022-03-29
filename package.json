@@ -13,6 +13,7 @@
     "@azure/arm-appservice": "^11.0.0",
     "@azure/arm-subscriptions": "^5.0.0",
     "@azure/identity": "^2.0.4",
-    "@azure/identity-cache-persistence": "^1.0.0"
+    "@azure/identity-cache-persistence": "^1.0.0",
+    "@azure/identity-vscode": "^1.0.0"
   }
 }
