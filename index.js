@@ -28,7 +28,7 @@ async function login() {
     const websiteClient = new WebSiteManagementClient(credentialChain, subscription.subscriptionId);
     const staticSites = await websiteClient.staticSites.list();
     for await (let site of staticSites) {
-      console.log(`- ${site.name}`);
+      console.log(`- ${site.name} (${site.id})`);
     }
   }
 }
