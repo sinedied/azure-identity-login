@@ -1,7 +1,8 @@
 
 const { DeviceCodeCredential, InteractiveBrowserCredential, ChainedTokenCredential, useIdentityPlugin } = require("@azure/identity");
-const { SubscriptionClient } = require("@azure/arm-subscriptions");
 const { cachePersistencePlugin } = require("@azure/identity-cache-persistence");
+const { SubscriptionClient } = require("@azure/arm-subscriptions");
+const { WebSiteManagementClient } = require("@azure/arm-appservice");
 
 useIdentityPlugin(cachePersistencePlugin);
 
@@ -19,11 +20,16 @@ async function login() {
   });
   const credentialChain = new ChainedTokenCredential(browserCredential, deviceCredential);
   
-  let subscriptionClient = new SubscriptionClient(credentialChain);
-  let subscriptions = await subscriptionClient.subscriptions.list();
-  for await (let subscription of subscriptions) {
+  const subscriptionClient = new SubscriptionClient(credentialChain);
+  const subscriptions = await subscriptionClient.subscriptions.list();
 
-    console.log(subscription);
+  for await (let subscription of subscriptions) {
+    console.log(`Static web apps in subscription ${subscription.displayName}:`);
+    const websiteClient = new WebSiteManagementClient(credentialChain, subscription.subscriptionId);
+    const staticSites = await websiteClient.staticSites.list();
+    for await (let site of staticSites) {
+      console.log(`- ${site.name}`);
+    }
   }
 }
 
