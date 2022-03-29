@@ -4,19 +4,21 @@ const { cachePersistencePlugin } = require("@azure/identity-cache-persistence");
 const { SubscriptionClient } = require("@azure/arm-subscriptions");
 const { WebSiteManagementClient } = require("@azure/arm-appservice");
 
+const tokenCachePersistenceOptions = {
+  name: "identity.cache",
+  enabled: true,
+  // unsafeAllowUnencryptedStorage: true
+}
+
 useIdentityPlugin(cachePersistencePlugin);
 
 async function login() {
   const browserCredential = new InteractiveBrowserCredential({
     redirectUri: "http://localhost:1337",
-    tokenCachePersistenceOptions: {
-      enabled: true
-    }
+    tokenCachePersistenceOptions
   });
   const deviceCredential = new DeviceCodeCredential({
-    tokenCachePersistenceOptions: {
-      enabled: true
-    }
+    tokenCachePersistenceOptions
   });
   const credentialChain = new ChainedTokenCredential(browserCredential, deviceCredential);
   
