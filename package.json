@@ -11,10 +11,15 @@
   "license": "MIT",
   "dependencies": {
     "@azure/arm-appservice": "^11.0.0",
+    "@azure/arm-resources": "^5.0.0",
     "@azure/arm-subscriptions": "^5.0.0",
     "@azure/identity": "^2.0.4",
     "@azure/identity-cache-persistence": "^1.0.0",
     "@azure/identity-vscode": "^1.0.0",
+    "@azure/logger": "^1.0.3",
     "prompts": "^2.4.2"
+  },
+  "engines": {
+    "node": ">=16"
   }
 }

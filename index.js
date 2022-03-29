@@ -8,6 +8,9 @@ const { cachePersistencePlugin } = require("@azure/identity-cache-persistence");
 const { vsCodePlugin } = require("@azure/identity-vscode");
 const { SubscriptionClient } = require("@azure/arm-subscriptions");
 const { WebSiteManagementClient } = require("@azure/arm-appservice");
+const { ResourceManagementClient } = require("@azure/arm-resources");
+const { setLogLevel } = require("@azure/logger");
+setLogLevel("error");
 
 const prompts = require("prompts");
 
@@ -24,47 +27,89 @@ if (process.env.AZURE_IDENTITY_ENABLE_CACHE_PERSISTENCE) {
   tokenCachePersistenceOptions.enabled = true;
 }
 
-async function login() {
+async function login(tenant = null) {
   const browserCredential = new InteractiveBrowserCredential({
     redirectUri: "http://localhost:8888",
     tokenCachePersistenceOptions,
+    tenantId: tenant?.tenantId,
   });
   const deviceCredential = new DeviceCodeCredential({
     tokenCachePersistenceOptions,
+    tenantId: tenant?.tenantId,
   });
-  const credentialChain = new ChainedTokenCredential(
-    browserCredential,
-    deviceCredential
-  );
+  const credentialChain = new ChainedTokenCredential(browserCredential, deviceCredential);
   return { credentialChain };
 }
 
+async function listTenants(credentialChain) {
+  const client = new SubscriptionClient(credentialChain);
+  const tenants = [];
+  for await (let tenant of client.tenants.list()) {
+    tenants.push(tenant);
+  }
+  return tenants;
+}
+
+async function listResourceGroups(credentialChain, subscriptionId) {
+  const client = new ResourceManagementClient(credentialChain, subscriptionId);
+  const resourceGroups = [];
+  for await (let resource of client.resources.list()) {
+    resourceGroups.push(resource);
+  }
+  return resourceGroups;
+}
+
 async function listSubscriptions(credentialChain) {
-  const subscriptionClient = new SubscriptionClient(credentialChain);
+  const client = new SubscriptionClient(credentialChain);
   const subscriptions = [];
-  for await (let subscription of subscriptionClient.subscriptions.list()) {
+  for await (let subscription of client.subscriptions.list()) {
     subscriptions.push(subscription);
   }
   return subscriptions;
 }
 
 async function listStaticSites(credentialChain, subscriptionId) {
-  const websiteClient = new WebSiteManagementClient(
-    credentialChain,
-    subscriptionId
-  );
+  const client = new WebSiteManagementClient(credentialChain, subscriptionId);
 
   const staticSites = [];
-  for await (let staticSite of websiteClient.staticSites.list()) {
+  for await (let staticSite of client.staticSites.list()) {
     staticSites.push(staticSite);
   }
   return staticSites;
 }
 
+async function chooseTenant(tenants) {
+  const choices = tenants.map((tenant) => ({
+    title: tenant.tenantId,
+    value: tenant,
+  }));
+  const response = await prompts({
+    type: "select",
+    name: "Tenant",
+    message: "Choose your tenant",
+    choices,
+  });
+  return response.Tenant;
+}
+
+async function chooseResourceGroup(resourceGroups) {
+  const choices = resourceGroups.map((resourceGroup) => ({
+    title: resourceGroup.name,
+    value: resourceGroup,
+  }));
+  const response = await prompts({
+    type: "select",
+    name: "ResourceGroup",
+    message: "Choose your resource group",
+    choices,
+  });
+  return response.ResourceGroup;
+}
+
 async function chooseSubscription(subscriptions) {
   const choices = subscriptions.map((subscription) => ({
     title: subscription.displayName,
-    value: subscription.subscriptionId,
+    value: subscription,
   }));
   const response = await prompts({
     type: "select",
@@ -89,34 +134,75 @@ async function chooseStaticSite(staticSites) {
   return response.staticSite;
 }
 
-async function staticSiteDeployment(
-  credentialChain,
-  subscriptionId,
-  resourceGroup,
-  staticSite
-) {
-  const websiteClient = new WebSiteManagementClient(
-    credentialChain,
-    subscriptionId
-  );
-  const deploymentTokenResponse =
-    await websiteClient.staticSites.listStaticSiteSecrets(
-      resourceGroup,
-      staticSite.name
-    );
+async function getStaticSiteDeployment(credentialChain, subscription, resourceGroup, staticSite) {
+  const websiteClient = new WebSiteManagementClient(credentialChain, subscription.subscriptionId);
+  const deploymentTokenResponse = await websiteClient.staticSites.listStaticSiteSecrets(resourceGroup.name, staticSite.name);
   return deploymentTokenResponse;
 }
 
 (async () => {
-  const { credentialChain } = await login();
+  let { credentialChain } = await login();
+  let tenant;
+
+  const tenants = await listTenants(credentialChain);
+  if (tenants.length === 0) {
+    console.log("No tenants found");
+    process.abort();
+  } else if (tenants.length === 1) {
+    console.log("Only one tenant found");
+    tenant = tenants[0];
+  } else {
+    tenant = await chooseTenant(tenants);
+    // login again with the new tenant
+    ({ credentialChain } = await login(tenant));
+  }
+
+
   const subscriptions = await listSubscriptions(credentialChain);
-  const subscriptionId = await chooseSubscription(subscriptions);
-  const staticSites = await listStaticSites(credentialChain, subscriptionId);
-  const staticSite = await chooseStaticSite(staticSites);
-  const resourceGroup = staticSite.id.split("/")[4];
-  const deploymentTokenResponse = await staticSiteDeployment(
+  let subscription;
+  if (subscriptions.length === 0) {
+    console.log("No subscriptions found");
+    process.abort();
+  }
+  else if (subscriptions.length === 1) {
+    console.log("Only one subscription found");
+    subscription = subscriptions[0];
+  }
+  else {
+    subscription = await chooseSubscription(subscriptions);
+  }
+
+  const resourceGroups = await listResourceGroups(credentialChain, subscription.subscriptionId);
+  let resourceGroup;
+  if (resourceGroups.length === 0) {
+    console.log("No resource groups found");
+    process.abort();
+  }
+  else if (resourceGroups.length === 1) {
+    console.log("Only one resource group found");
+    resourceGroup = resourceGroups[0];
+  }
+  else {
+    resourceGroup = await chooseResourceGroup(resourceGroups);
+  }
+
+  const staticSites = await listStaticSites(credentialChain, subscription.subscriptionId);
+  let staticSite;
+  if (staticSites.length === 0) {
+    console.log("No static sites found");
+    process.abort();
+  }
+  else if (staticSites.length === 1) {
+    console.log("Only one static site found");
+    staticSite = staticSites[0];
+  }
+  else {
+    staticSite = await chooseStaticSite(staticSites);
+  }
+
+  const deploymentTokenResponse = await getStaticSiteDeployment(
     credentialChain,
-    subscriptionId,
+    subscription,
     resourceGroup,
     staticSite
   );
